@@ -1,22 +1,76 @@
+from flask import Flask, jsonify, Response
 import requests
-from bs4 import BeautifulSoup
+import dateutil.parser
+from datetime import datetime
 
-# URL de la page à scraper (à adapter selon le site réel)
-url = 'URL_DE_LA_PAGE_DE_TRAINS_MASSY'
+app = Flask(__name__)
 
-# Envoyer la requête HTTP
-response = requests.get(url)
-response.raise_for_status()
+def get_horaires():
+    url = "https://prim.iledefrance-mobilites.fr/marketplace/stop-monitoring"
+    params = {
+        "MonitoringRef": "STIF:StopArea:SP:63244:",
+        "LineRef": "STIF:Line::C01743:"
+    }
+    headers = {
+        "accept": "application/json",
+        "apiKey": "AmqPoHD01WFdNOnQtkW24tTjz36LKWzX"
+    }
+    response = requests.get(url, params=params, headers=headers)
+    data = response.json()
+    visits = data["Siri"]["ServiceDelivery"]["StopMonitoringDelivery"][0]["MonitoredStopVisit"]
+    resultats = []
+    for visit in visits:
+        journey = visit["MonitoredVehicleJourney"]
+        call = journey["MonitoredCall"]
+        heure_arrivee = call.get("ExpectedArrivalTime")
+        destination = journey["DestinationName"][0]["value"]
+        quai = call.get("DeparturePlatformName", {}).get("value", "")
+        if heure_arrivee:
+            dt = dateutil.parser.isoparse(heure_arrivee)
+            heure_locale = dt.astimezone().strftime("%H:%M")
+            resultats.append({
+                "heure": heure_locale,
+                "destination": destination,
+                "quai": quai
+            })
+    return resultats
 
-# Parser le contenu HTML
-soup = BeautifulSoup(response.text, 'html.parser')
+@app.route("/horaires.json")
+def horaires_json():
+    return jsonify(get_horaires())
 
-# Exemple de sélection des éléments (à adapter selon la structure réelle)
-# Supposons que les départs soient dans des divs avec classe 'departure'
-departures = soup.find_all('div', class_='departure')
+@app.route("/horaires.xml")
+def horaires_xml():
+    horaires = get_horaires()
+    xml = '<?xml version="1.0" encoding="UTF-8"?><horaires>'
+    for r in horaires:
+        xml += f'<passage><heure>{r["heure"]}</heure><destination>{r["destination"]}</destination><quai>{r["quai"]}</quai></passage>'
+    xml += '</horaires>'
+    return Response(xml, mimetype='application/xml')
 
-# Extraire et afficher les prochains départs
-for departure in departures:
-    train_time = departure.find('span', class_='time').text
-    train_dest = departure.find('span', class_='destination').text
-    print(f"Prochain train à {train_time} vers {train_dest}")
+@app.route("/horaires.rss")
+def horaires_rss():
+    horaires = get_horaires()
+    items = ""
+    for r in horaires:
+        items += f"""
+        <item>
+            <title>Train vers {r['destination']} à {r['heure']} quai {r['quai']}</title>
+            <description>Départ à {r['heure']} quai {r['quai']}</description>
+            <pubDate>{datetime.now().strftime('%a, %d %b %Y %H:%M:%S +0000')}</pubDate>
+        </item>
+        """
+    rss = f"""<?xml version="1.0" encoding="UTF-8" ?>
+    <rss version="2.0">
+    <channel>
+        <title>Prochains trains</title>
+        <link>http://localhost/horaires</link>
+        <description>Horaires des prochains trains</description>
+        {items}
+    </channel>
+    </rss>
+    """
+    return Response(rss, mimetype='application/rss+xml')
+
+if __name__ == "__main__":
+    app.run(port=5000)
