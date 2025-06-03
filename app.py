@@ -2,6 +2,7 @@ from flask import Flask, jsonify, Response
 import requests
 import dateutil.parser
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 app = Flask(__name__)
 
@@ -27,7 +28,8 @@ def get_horaires():
         quai = call.get("DeparturePlatformName", {}).get("value", "")
         if heure_arrivee:
             dt = dateutil.parser.isoparse(heure_arrivee)
-            heure_locale = dt.astimezone().strftime("%H:%M")
+            dt_paris = dt.astimezone(ZoneInfo("Europe/Paris"))  # conversion ici
+            heure_locale = dt_paris.strftime("%H:%M")
             resultats.append({
                 "heure": heure_locale,
                 "destination": destination,
