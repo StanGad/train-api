@@ -36,6 +36,7 @@ def get_horaires():
                 "quai": quai
             })
     resultats.sort(key=lambda r: r["heure"])
+    print(resultats)
     return resultats
 
 @app.route("/horaires.json")
